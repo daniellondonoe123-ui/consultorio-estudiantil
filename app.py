@@ -111,18 +111,41 @@ if boton_consultar:
             - Caso reportado: {caso}
             """
 
-            try:
-                respuesta = client.models.generate_content(
-                    model="gemini-3.8-flash",  # <-- Actualiza aquí el nombre del modelo
-                    contents=prompt_completo,
-                    config=types.GenerateContentConfig(
-                        system_instruction=instrucciones_sistema,
-                        temperature=0.0
-                    )
-                )
+            import time
+
+            # Lista de modelos a intentar si el servidor está saturado
+            modelos_disponibles = ["gemini-3.8-flash", "gemini-2.0-flash"]
+            respuesta = None
+            ultimo_error = None
+
+            for nombre_modelo in modelos_disponibles:
+                for intento in range(3):  # Intenta hasta 3 veces por modelo
+                    try:
+                        respuesta = client.models.generate_content(
+                            model=nombre_modelo,
+                            contents=prompt_completo,
+                            config=types.GenerateContentConfig(
+                                system_instruction=instrucciones_sistema,
+                                temperature=0.0
+                            )
+                        )
+                        break  # Si respondió con éxito, sale del bucle de intentos
+                    except Exception as e:
+                        ultimo_error = e
+                        if "503" in str(e):
+                            time.sleep(2)  # Pausa breve si hay congestión de servidores
+                        else:
+                            break  # Si es otro tipo de error, pasa al siguiente modelo
+                
+                if respuesta is not None:
+                    break
+
+            if respuesta:
                 st.markdown("---")
                 st.markdown(f"### 📄 Concepto de Orientación para {nombre} ({grado})")
                 st.markdown(respuesta.text)
-
-            except Exception as e:
-                st.error(f"❌ Detalle técnico del error en Gemini API: {e}")
+            else:
+                st.error(
+                    "⏳ Los servidores de consulta están recibiendo muchas solicitudes al mismo tiempo. "
+                    "Por favor, presiona el botón 'Consultar orientación jurídica' nuevamente en unos segundos."
+                )
