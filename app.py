@@ -113,7 +113,7 @@ if boton_consultar:
 
             try:
                 respuesta = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.8-flash",  # <-- Actualiza aquí el nombre del modelo
                     contents=prompt_completo,
                     config=types.GenerateContentConfig(
                         system_instruction=instrucciones_sistema,
