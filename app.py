@@ -1,5 +1,7 @@
 import os
+from pathlib import Path
 import streamlit as st
+from pypdf import PdfReader
 from google import genai
 from google.genai import types
 
@@ -21,23 +23,32 @@ st.markdown(
 # 2. Conexión con Gemini API
 api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
 if not api_key:
-    st.error("Falta configurar la clave GEMINI_API_KEY en el sistema.")
+    st.error("Falta configurar la clave GEMINI_API_KEY en Settings -> Secrets.")
     st.stop()
 
 client = genai.Client(api_key=api_key)
 
-# 3. Carga única del Manual de Convivencia en caché (Modo NotebookLM)
-@st.cache_resource
-def cargar_manual():
-    ruta_pdf = "manual_convivencia.pdf"
-    if not os.path.exists(ruta_pdf):
-        return None
-    return client.files.upload(file=ruta_pdf)
+# 3. Extracción de texto del Manual de Convivencia (rápido, sin expiración y ahorra tokens)
+ruta_pdf = Path(__file__).parent / "manual_convivencia.pdf"
 
-manual_pdf = cargar_manual()
-
-if manual_pdf is None:
+if not ruta_pdf.exists():
     st.warning("⚠️ Aún no se ha encontrado el archivo 'manual_convivencia.pdf' en la carpeta del proyecto.")
+    st.stop()
+
+@st.cache_resource
+def extraer_texto_manual(ruta):
+    lector = PdfReader(str(ruta))
+    texto_completo = []
+    for num_pagina, pagina in enumerate(lector.pages, start=1):
+        texto_pagina = pagina.extract_text()
+        if texto_pagina:
+            texto_completo.append(f"--- PÁGINA {num_pagina} ---\n{texto_pagina}")
+    return "\n".join(texto_completo)
+
+texto_manual = extraer_texto_manual(ruta_pdf)
+
+if not texto_manual.strip():
+    st.error("⚠️ El PDF parece estar escaneado como imagen sin texto seleccionable. Usa un PDF con texto reconocible.")
     st.stop()
 
 # 4. Formulario de operación para el estudiante
@@ -60,7 +71,7 @@ with st.form("consulta_estudiante"):
 
     boton_consultar = st.form_submit_button("Consultar orientación jurídica ⚖️")
 
-# 5. Procesamiento y protocolo de respuesta
+# 5. Procesamiento y protocolo de respuesta con captura de errores
 if boton_consultar:
     if not nombre.strip() or not documento.strip() or not grado.strip() or not caso.strip():
         st.warning("⚠️ Por favor completa tu nombre, documento, grado/grupo y la descripción del caso.")
@@ -73,37 +84,45 @@ if boton_consultar:
             Tu objetivo es orientar a los estudiantes con un lenguaje claro, empático, sencillo y pedagógico.
 
             REGLA ESTRICTA DE FUENTES (MODO NOTEBOOKLM):
-            - Para normas internas del colegio, usa ÚNICAMENTE el archivo PDF adjunto (Manual de Convivencia de la IE Ana Gómez de Sierra). Prohibido inventar artículos o sanciones que no estén en el PDF.
-            - Prioriza en primer lugar el Manual de Convivencia adjunto y compleméntalo únicamente con la Constitución Política de Colombia vigente y la Ley 1620 de 2013 (y su Decreto Reglamentario 1965 de 2013).
+            - Para normas internas del colegio, usa ÚNICAMENTE el texto del Manual de Convivencia de la IE Ana Gómez de Sierra suministrado. Prohibido inventar artículos, numerales o sanciones que no aparezcan allí.
+            - Prioriza el Manual de Convivencia y compleméntalo únicamente con la Constitución Política de Colombia vigente y la Ley 1620 de 2013 (y su Decreto Reglamentario 1965 de 2013).
 
             PROTOCOLO DE RESPUESTA OBLIGATORIO:
             Dirígete al estudiante por su nombre y responde usando exactamente estos 5 apartados:
             
             1. **Tipo de caso:** Explica de forma clara qué situación se presenta (conflicto interpersonal, agresión verbal/física/relacional, ciberacoso, reclamo académico, debido proceso, etc.).
-            2. **Tipo de falta o situación:** Clasifícala según el Manual de Convivencia del colegio y la Ley 1620 (Situación Tipo I, Situación Tipo II, Situación Tipo III, o falta/situación académica). Explica por qué encaja en esa categoría.
-            3. **Ley y normas que te respaldan:** Cita los artículos o capítulos específicos del Manual de Convivencia adjunto, junto con los artículos de la Ley 1620 de 2013 y de la Constitución Política de Colombia que amparan al estudiante.
-            4. **¿Con quién debes acudir para escalar el caso?:** Indica claramente a qué figura escolar debe acudir (representante de grupo, personero estudiantil, docente de área, director de grupo, psicoorientación, coordinación, comité escolar de convivencia o rectoría).
+            2. **Tipo de falta o situación:** Clasifícala según el Manual de Convivencia del colegio y la Ley 1620 (Situación Tipo I, Situación Tipo II, Situación Tipo III, o situación académica). Explica por qué encaja en esa categoría.
+            3. **Ley y normas que te respaldan:** Cita los artículos o páginas específicas del Manual de Convivencia suministrado, junto con los artículos de la Ley 1620 de 2013 y de la Constitución Política de Colombia que amparan al estudiante.
+            4. **¿Con quién debes acudir para escalar el caso?:** Indica claramente a qué figura escolar debe acudir (representante estudiantil, personero, docente de área, director de grupo, psicoorientación, coordinación, comité escolar de convivencia o rectoría).
             5. **Conducto regular paso a paso:**
                - **Qué debes hacer tú como estudiante:** Pasos concretos en orden cronológico.
                - **Qué debe hacer la institución:** Pasos y garantías del debido proceso que el colegio debe cumplir.
             """
 
-            consulta_usuario = f"""
-            Estudiante: {nombre}
-            Documento: {documento}
-            Grado/Grupo: {grado}
-            Caso reportado: {caso}
+            prompt_completo = f"""
+            === MANUAL DE CONVIVENCIA IE ANA GÓMEZ DE SIERRA ===
+            {texto_manual}
+            ====================================================
+
+            DATOS DE LA CONSULTA DEL ESTUDIANTE:
+            - Estudiante: {nombre}
+            - Documento: {documento}
+            - Grado/Grupo: {grado}
+            - Caso reportado: {caso}
             """
 
-            respuesta = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[manual_pdf, consulta_usuario],
-                config=types.GenerateContentConfig(
-                    system_instruction=instrucciones_sistema,
-                    temperature=0.0 # Cero creatividad para evitar que invente normas fuera de los documentos
+            try:
+                respuesta = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt_completo,
+                    config=types.GenerateContentConfig(
+                        system_instruction=instrucciones_sistema,
+                        temperature=0.0
+                    )
                 )
-            )
+                st.markdown("---")
+                st.markdown(f"### 📄 Concepto de Orientación para {nombre} ({grado})")
+                st.markdown(respuesta.text)
 
-            st.markdown("---")
-            st.markdown(f"### 📄 Concepto de Orientación para {nombre} ({grado})")
-            st.markdown(respuesta.text)
+            except Exception as e:
+                st.error(f"❌ Detalle técnico del error en Gemini API: {e}")
