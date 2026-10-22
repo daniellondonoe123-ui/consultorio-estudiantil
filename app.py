@@ -113,10 +113,11 @@ if boton_consultar:
         st.markdown("---")
         st.markdown(f"### 📄 Concepto de Orientación para {nombre} ({grado})")
 
-        # Generador de streaming en tiempo real con lista de modelos ampliada
+       # Generador de streaming en tiempo real usando el modelo de alta capacidad
         def flujo_respuesta():
             import time
-            modelos = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-3.8-flash"]
+            # Usar exclusivamente el modelo con límite de 1.500 consultas diarias
+            modelos = ["gemini-1.5-flash"]
             ultimo_error = ""
             
             for modelo_actual in modelos:
@@ -127,6 +128,8 @@ if boton_consultar:
                         config=types.GenerateContentConfig(
                             system_instruction=instrucciones_sistema,
                             temperature=0.0
+                        
+                    
                         )
                     )
                     for pedazo in stream:
