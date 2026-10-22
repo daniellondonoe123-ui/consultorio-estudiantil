@@ -71,7 +71,7 @@ with st.form("consulta_estudiante"):
 
     boton_consultar = st.form_submit_button("Consultar orientación jurídica ⚖️")
 
-# 5. Procesamiento y protocolo de respuesta con Streaming en tiempo real
+# 5. Procesamiento y protocolo de respuesta con autodetección de modelos
 if boton_consultar:
     if not nombre.strip() or not documento.strip() or not grado.strip() or not caso.strip():
         st.warning("⚠️ Por favor completa tu nombre, documento, grado/grupo y la descripción del caso.")
@@ -113,13 +113,27 @@ if boton_consultar:
         st.markdown("---")
         st.markdown(f"### 📄 Concepto de Orientación para {nombre} ({grado})")
 
-       # Generador de streaming en tiempo real usando el modelo de alta capacidad
         def flujo_respuesta():
             import time
-            # Usar exclusivamente el modelo con límite de 1.500 consultas diarias
-            modelos = ["gemini-1.5-flash"]
+            
+            # 1. Consultar automáticamente a Google qué modelos existen en tu cuenta
+            try:
+                todos = [
+                    m.name.replace("models/", "")
+                    for m in client.models.list()
+                    if "gemini" in m.name.lower()
+                    and not any(x in m.name.lower() for x in ["embedding", "imagen", "veo", "aqa", "tts", "audio", "vision", "1.5", "2.5"])
+                ]
+                # Priorizar modelos flash y flash-lite (más rápidos y con cupo separado)
+                modelos_flash = [m for m in todos if "flash" in m]
+                 otros_modelos = [m for m in todos if "flash" not in m]
+                modelos = modelos_flash + otros_modelos
+            except Exception:
+                modelos = ["gemini-3.8-flash-lite", "gemini-3.8-flash", "gemini-3.8-pro"]
+
             ultimo_error = ""
             
+            # 2. Probar cada modelo disponible hasta que uno responda con cupo libre
             for modelo_actual in modelos:
                 try:
                     stream = client.models.generate_content_stream(
@@ -128,20 +142,18 @@ if boton_consultar:
                         config=types.GenerateContentConfig(
                             system_instruction=instrucciones_sistema,
                             temperature=0.0
-                        
-                    
                         )
                     )
                     for pedazo in stream:
                         if pedazo.text:
                             yield pedazo.text
-                    return
+                    return  # Terminó con éxito
                 except Exception as e:
-                    ultimo_error = str(e)
-                    time.sleep(2)
+                    ultimo_error = f"[{modelo_actual}] {e}"
+                    time.sleep(1)
                     continue
             
-            yield f"⚠️ No fue posible conectar con la IA tras varios intentos. Detalle técnico: {ultimo_error}"
+            yield f"⚠️ No fue posible conectar tras probar los modelos disponibles ({', '.join(modelos)}). Último error: {ultimo_error}"
 
         with st.spinner("Analizando tu caso con el Manual de Convivencia..."):
             st.write_stream(flujo_respuesta)
