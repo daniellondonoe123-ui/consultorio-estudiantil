@@ -126,7 +126,7 @@ if boton_consultar:
                 ]
                 # Priorizar modelos flash y flash-lite (más rápidos y con cupo separado)
                 modelos_flash = [m for m in todos if "flash" in m]
-                 otros_modelos = [m for m in todos if "flash" not in m]
+                otros_modelos = [m for m in todos if "flash" not in m]
                 modelos = modelos_flash + otros_modelos
             except Exception:
                 modelos = ["gemini-3.8-flash-lite", "gemini-3.8-flash", "gemini-3.8-pro"]
